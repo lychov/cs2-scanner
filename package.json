@@ -1,0 +1,12 @@
+{
+  "name": "cs2-tradeup-scanner",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Сканер выгодных контрактов обмена CS2",
+  "scripts": {
+    "scan": "node scanner.mjs",
+    "serve": "npx --yes serve public"
+  },
+  "engines": { "node": ">=18" }
+}

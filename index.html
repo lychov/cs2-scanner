@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Сканер крафтов CS2</title>
+<style>
+:root{
+  --bg:#0f1115;--panel:#171a21;--line:#262b35;--text:#e8eaef;--muted:#8b93a3;
+  --green:#3ecf8e;--red:#ff6b6b;--amber:#f5b62e;--accent:#6aa9ff;
+  --mil:#4b69ff;--res:#8847ff;--cla:#d32ce6;--cov:#eb4b4b;--gold:#e4ae39;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);
+  font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{padding:16px 16px 8px}
+h1{font-size:20px;margin:0 0 4px;letter-spacing:-.01em}
+.meta{color:var(--muted);font-size:13px}
+.filters{position:relative;z-index:5;background:color-mix(in srgb,var(--bg) 92%,transparent);
+  backdrop-filter:blur(8px);padding:8px 16px 10px;border-bottom:1px solid var(--line);
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+@media(min-width:760px){.filters{position:sticky;top:0;grid-template-columns:repeat(4,minmax(0,1fr))}}
+label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)}
+select,input[type=number]{width:100%;background:var(--panel);color:var(--text);
+  border:1px solid var(--line);border-radius:8px;padding:8px;font-size:15px}
+.toggles{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;flex-direction:row;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--line);
+  border-radius:999px;background:var(--panel);color:var(--text);font-size:13px;cursor:pointer;user-select:none}
+.chip input{accent-color:var(--accent);margin:0}
+main{padding:12px 16px 40px;max-width:1000px;margin:0 auto}
+.count{color:var(--muted);font-size:13px;margin:0 0 10px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
+.row{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.col{font-weight:600}
+.tier{font-size:12px;color:var(--muted);margin-top:2px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle}
+.roi{font-weight:700;font-size:18px;white-space:nowrap}
+.pos{color:var(--green)}.neg{color:var(--red)}
+.input{margin:8px 0;font-size:14px}
+.input b{font-weight:600}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px}
+.stat{background:var(--bg);border-radius:8px;padding:6px 8px}
+.stat span{display:block;font-size:11px;color:var(--muted)}
+.stat strong{font-size:14px;font-variant-numeric:tabular-nums}
+.hint{font-size:12px;color:var(--amber);margin-top:8px}
+details{margin-top:8px}
+summary{cursor:pointer;color:var(--accent);font-size:13px}
+table{width:100%;border-collapse:collapse;margin-top:6px;font-size:13px}
+td{padding:4px 2px;border-top:1px solid var(--line)}
+td:last-child{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.badge{white-space:nowrap;font-size:11px;padding:1px 6px;border-radius:999px;border:1px solid var(--line);color:var(--muted);margin-left:4px}
+.empty{color:var(--muted);text-align:center;padding:40px 0}
+footer{color:var(--muted);font-size:12px;padding:0 16px 30px;max-width:1000px;margin:0 auto}
+</style>
+</head>
+<body>
+<header>
+  <h1>Сканер крафтов CS2</h1>
+  <div class="meta" id="meta">Загрузка данных…</div>
+</header>
+
+<div class="filters">
+  <label>Где продаёшь
+    <select id="fee">
+      <option value="steam">Steam (−15%)</option>
+      <option value="0.02" selected>CSFloat / Buff (−2%)</option>
+      <option value="0.05">Другой маркет (−5%)</option>
+      <option value="0">Обмен, без продажи (0%)</option>
+    </select>
+  </label>
+  <label>Бюджет до, $
+    <input id="budget" type="number" min="0" step="1" placeholder="любой">
+  </label>
+  <label>Уровень
+    <select id="tier">
+      <option value="">Все</option>
+      <option value="mil-spec">Синие → фиолет</option>
+      <option value="restricted">Фиолет → розовые</option>
+      <option value="classified">Розовые → красные</option>
+      <option value="covert">Красные → нож</option>
+      <option value="industrial">Промышл. → синие</option>
+      <option value="consumer">Ширпотреб → промышл.</option>
+    </select>
+  </label>
+  <label>Сортировка
+    <select id="sort">
+      <option value="roi">По окупаемости %</option>
+      <option value="profit">По прибыли $</option>
+      <option value="hit">По шансу плюса</option>
+      <option value="cost">Сначала дешёвые</option>
+    </select>
+  </label>
+  <div class="toggles">
+    <label class="chip"><input type="checkbox" id="safe"> Только 100% в плюс</label>
+    <label class="chip"><input type="checkbox" id="pos" checked> Только с плюсом</label>
+    <label class="chip"><input type="checkbox" id="bestf"> Если поймаю лучший флоат</label>
+    <label class="chip"><input type="checkbox" id="st"> StatTrak</label>
+  </div>
+</div>
+
+<main>
+  <p class="count" id="count"></p>
+  <div id="list"></div>
+</main>
+
+<footer>
+  Шансы: каждый скин следующего уровня в коллекции выпадает с равной вероятностью; для ножей — каждая отделка из кейса.
+  Цены — самый дешёвый лот на Skinport, в Steam обычно дороже. Флоат выхода считается по худшему флоату внутри износа входа
+  (режим «лучший флоат» — по лучшему). Всегда перепроверяй перед покупкой — контракт необратим.
+</footer>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const TIER_COLOR = {"mil-spec":"var(--mil)",restricted:"var(--res)",classified:"var(--cla)",covert:"var(--cov)",knife:"var(--gold)",industrial:"#5e98d9",consumer:"#b0c3d9"};
+const SHORT = {consumer:"Ширпотреб",industrial:"Промышл.","mil-spec":"Синие",restricted:"Фиолет",classified:"Розовые",covert:"Красные",knife:"Нож/перчатки"};
+let DATA = null;
+
+const PREFS_KEY = "tradeup-scan-prefs";
+function loadPrefs(){
+  try{
+    const p = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
+    for (const [k,v] of Object.entries(p)){
+      const el = $(k); if (!el) continue;
+      if (el.type === "checkbox") el.checked = !!v; else el.value = v;
+    }
+  }catch(e){}
+}
+function savePrefs(){
+  try{
+    const p = {};
+    for (const k of ["fee","budget","tier","sort","safe","pos","bestf","st"]){
+      const el = $(k); p[k] = el.type === "checkbox" ? el.checked : el.value;
+    }
+    localStorage.setItem(PREFS_KEY, JSON.stringify(p));
+  }catch(e){}
+}
+
+const money = (v) => "$" + (v >= 100 ? v.toFixed(0) : v.toFixed(2));
+function net(price, fee){
+  return fee === "steam" ? price / 1.15 : price * (1 - Number(fee));
+}
+
+function evaluate(c, fee, bestF){
+  const cost = c.input.price * c.count;
+  const vals = c.outcomes.map(o => ({
+    name:o.name,
+    wear: bestF ? o.wearBest : o.wear,
+    gross: bestF ? o.priceBest : o.price,
+  })).map(o => ({...o, net: net(o.gross, fee)}));
+  const ev = vals.reduce((a,o)=>a+o.net,0) / vals.length;
+  const hit = vals.filter(o => o.net >= cost).length / vals.length;
+  vals.sort((a,b)=>b.net-a.net);
+  return {cost, ev, profit: ev - cost, roi: (ev - cost) / cost, hit, vals};
+}
+
+function render(){
+  if (!DATA) return;
+  savePrefs();
+  const fee = $("fee").value, budget = parseFloat($("budget").value);
+  const tier = $("tier").value, sort = $("sort").value;
+  const safe = $("safe").checked, pos = $("pos").checked, bestF = $("bestf").checked, st = $("st").checked;
+
+  let rows = DATA.contracts
+    .filter(c => c.st === st && (!tier || c.tier === tier))
+    .map(c => ({c, r: evaluate(c, fee, bestF)}))
+    .filter(({r}) => (isNaN(budget) || r.cost <= budget) && (!pos || r.profit > 0) && (!safe || r.hit === 1));
+
+  const key = {roi:(x)=>-x.r.roi, profit:(x)=>-x.r.profit, hit:(x)=>-(x.r.hit*10+x.r.roi), cost:(x)=>x.r.cost}[sort];
+  rows.sort((a,b)=>key(a)-key(b));
+  const shown = rows.slice(0, 150);
+
+  $("count").textContent = rows.length
+    ? `Найдено ${rows.length}` + (rows.length > shown.length ? `, показаны первые ${shown.length}` : "")
+    : "";
+  $("list").innerHTML = shown.length ? "" : `<div class="empty">Под эти фильтры сейчас ничего нет. Попробуй «Обмен, без продажи» или выключи «Только 100%».</div>`;
+
+  const frag = document.createDocumentFragment();
+  for (const {c, r} of shown){
+    const el = document.createElement("div");
+    el.className = "card";
+    const worst = r.vals[r.vals.length-1], best = r.vals[0];
+    const hint = bestF
+      ? `Нужен флоат входов около ${c.input.fMin} (низ износа). Обычный лот такого не даст — ищи по флоату.`
+      : `Подойдёт любой флоат до ${c.input.fMax} в этом износе — расчёт уже по худшему.`;
+    el.innerHTML = `
+      <div class="row">
+        <div>
+          <div class="col"></div>
+          <div class="tier"><span class="dot" style="background:${TIER_COLOR[c.tier]}"></span>${SHORT[c.tier]} → <span class="dot" style="background:${TIER_COLOR[c.outTier]}"></span>${SHORT[c.outTier]}${c.st?'<span class="badge">ST</span>':''}</div>
+        </div>
+        <div class="roi ${r.profit>=0?'pos':'neg'}">${r.profit>=0?'+':''}${(r.roi*100).toFixed(1)}%</div>
+      </div>
+      <div class="input">${c.count}× <b class="in-name"></b> по ${money(c.input.price)} <span class="badge">${c.input.qty} лотов</span></div>
+      <div class="stats">
+        <div class="stat"><span>Вложишь</span><strong>${money(r.cost)}</strong></div>
+        <div class="stat"><span>В среднем</span><strong>${money(r.ev)}</strong></div>
+        <div class="stat"><span>Шанс плюса</span><strong class="${r.hit===1?'pos':''}">${Math.round(r.hit*100)}%</strong></div>
+        <div class="stat"><span>Худший</span><strong class="${worst.net>=r.cost?'pos':'neg'}">${money(worst.net)}</strong></div>
+      </div>
+      <div class="hint"></div>
+      <details><summary>Все исходы (${r.vals.length})</summary><table></table></details>`;
+    el.querySelector(".col").textContent = c.col;
+    el.querySelector(".in-name").textContent = c.input.name;
+    el.querySelector(".hint").textContent = hint;
+    const tb = el.querySelector("table");
+    for (const o of r.vals){
+      const tr = document.createElement("tr");
+      const td1 = document.createElement("td"); td1.textContent = `${o.name} (${o.wear})`;
+      const td2 = document.createElement("td"); td2.textContent = money(o.net);
+      td2.className = o.net >= r.cost ? "pos" : "neg";
+      tr.append(td1, td2); tb.append(tr);
+    }
+    frag.append(el);
+  }
+  $("list").append(frag);
+}
+
+async function load(){
+  try{
+    const res = await fetch("data.json", {cache:"no-store"});
+    DATA = await res.json();
+    const d = new Date(DATA.updated);
+    const mins = Math.round((Date.now() - d) / 60000);
+    $("meta").textContent = `Обновлено ${d.toLocaleString("ru-RU")} (${mins < 60 ? mins + " мин" : Math.round(mins/60) + " ч"} назад) · ${DATA.contracts.length} контрактов в базе`;
+    render();
+  }catch(e){
+    $("meta").textContent = "Не удалось загрузить data.json — сначала запусти node scanner.mjs";
+  }
+}
+
+loadPrefs();
+for (const id of ["fee","budget","tier","sort","safe","pos","bestf","st"])
+  $(id).addEventListener(id === "budget" ? "input" : "change", render);
+load();
+</script>
+</body>
+</html>
