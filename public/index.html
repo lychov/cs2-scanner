@@ -257,7 +257,7 @@ function render(){
   $("count").textContent = rows.length
     ? `Найдено ${rows.length}` + (rows.length > shown.length ? `, показаны первые ${shown.length}` : "")
     : "";
-  $("list").innerHTML = shown.length ? "" : `<div class="empty">Под эти фильтры сейчас ничего нет. Попробуй «Обмен, без продажи» или выключи «Только 100%».</div>`;
+  $("list").innerHTML = shown.length ? "" : `<div class="empty">Сайт работает — просто под эти фильтры сейчас нет контрактов в плюс.<br>Больше всего вариантов даёт <b>Steam → Steam</b> с галочкой <b>«Флоат-охота»</b>, или уровень «Все».</div>`;
 
   const frag = document.createDocumentFragment();
   for (const {c, r} of shown){

@@ -53,9 +53,19 @@ const args = Object.fromEntries(
 
 async function loadJson(urlOrFile, opts = {}) {
   if (!/^https?:/.test(urlOrFile)) return JSON.parse(await readFile(urlOrFile, "utf8"));
-  const res = await fetch(urlOrFile, opts);
-  if (!res.ok) throw new Error(`${urlOrFile} -> HTTP ${res.status}`);
-  return res.json();
+  // До 3 попыток: источники иногда отвечают ошибкой или ограничивают частоту
+  let last;
+  for (let i = 0; i < 3; i++) {
+    try {
+      const res = await fetch(urlOrFile, opts);
+      if (res.ok) return await res.json();
+      last = new Error(`${urlOrFile} -> HTTP ${res.status}`);
+    } catch (e) {
+      last = e;
+    }
+    await new Promise((r) => setTimeout(r, 15000 * (i + 1)));
+  }
+  throw last;
 }
 
 function tierOf(skin) {
