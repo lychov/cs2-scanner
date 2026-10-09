@@ -111,18 +111,19 @@ async function main() {
 
   // Steam: покупка — по большей из средних за 24ч/7д (осторожно), только если скин продавался за неделю.
   // Продажа — по меньшей из 24ч/7д, для редких вещей (ножи) допускаем среднюю за 30д.
+  // Покупка: скин должен продаваться и за сутки, и за неделю — иначе это неликвид, цена случайная.
   const steamBuy = (name) => {
     const r = steamRaw[name];
-    if (!r) return null;
-    const recent = [r.last_24h, r.last_7d].filter((x) => x > 0);
-    return recent.length ? Math.max(...recent) : null;
+    if (!(r?.last_24h > 0 && r?.last_7d > 0)) return null;
+    return Math.max(r.last_24h, r.last_7d);
   };
-  const steamSell = (name) => {
+  // Продажа: нужны продажи за неделю; только для ножей/перчаток допускаем среднюю за 30 дней.
+  const steamSell = (name, gold = false) => {
     const r = steamRaw[name];
     if (!r) return null;
     const recent = [r.last_24h, r.last_7d].filter((x) => x > 0);
-    if (recent.length) return Math.min(...recent);
-    return r.last_30d > 0 ? r.last_30d : null;
+    if (r.last_7d > 0) return Math.min(...recent);
+    return gold && r.last_30d > 0 ? r.last_30d : null;
   };
 
   // Цены Skinport: min_price — самый дешёвый лот (бывает null), suggested_price — оценка рынка.
@@ -222,7 +223,7 @@ async function main() {
       float = +f.toFixed(4);
     }
     const sp = sellPrice(name);
-    const stp = steamSell(name);
+    const stp = steamSell(name, skin.gold);
     return sp || stp ? { wear, float, price: sp, steam: stp } : null;
   }
 

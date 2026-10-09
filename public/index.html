@@ -35,6 +35,7 @@ main{padding:12px 16px 40px;max-width:1000px;margin:0 auto}
 .tier{font-size:12px;color:var(--muted);margin-top:2px}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle}
 .roi{font-weight:700;font-size:18px;white-space:nowrap}
+.sus{font-size:11px;font-weight:500;color:var(--amber);text-align:right;white-space:normal;max-width:120px}
 .pos{color:var(--green)}.neg{color:var(--red)}
 .input{margin:8px 0;font-size:14px;display:flex;align-items:center;gap:10px}
 .input .txt{min-width:0}
@@ -260,7 +261,7 @@ function render(){
           <div class="col"></div>
           <div class="tier"><span class="dot" style="background:${TIER_COLOR[c.tier]}"></span>${SHORT[c.tier]} → <span class="dot" style="background:${TIER_COLOR[c.outTier]}"></span>${SHORT[c.outTier]}${c.st?'<span class="badge">ST</span>':''}</div>
         </div>
-        <div class="roi ${r.profit>=0?'pos':'neg'}">${r.profit>=0?'+':''}${(r.roi*100).toFixed(1)}%</div>
+        <div class="roi ${r.profit>=0?'pos':'neg'}">${r.profit>=0?'+':''}${(r.roi*100).toFixed(1)}%${r.roi>2?'<div class="sus">слишком хорошо — проверь вручную</div>':''}</div>
       </div>
       <div class="input"><span class="txt">${c.count}× <b class="in-name"></b><button class="copy" type="button" title="Скопировать название" aria-label="Скопировать название"></button> по ${money(inputPrice(c))} <span class="badge">${$("buy").value === "steam" ? "цена Steam" : c.input.qty + " лотов"}</span></span></div>
       <div class="strip"></div>
