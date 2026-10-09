@@ -48,6 +48,7 @@ main{padding:12px 16px 40px;max-width:1000px;margin:0 auto}
 .copy:hover{color:var(--text);border-color:var(--accent)}
 .copy.ok{color:var(--green);border-color:var(--green)}
 .copy svg{width:15px;height:15px}
+td a{color:inherit;text-decoration:none;border-bottom:1px dotted var(--muted)}td a:hover{color:var(--accent)}
 td.pic{width:44px;padding-right:6px}td.pic img{width:44px;height:33px;object-fit:contain;display:block}
 .input b{font-weight:600}
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px}
@@ -81,7 +82,7 @@ footer{color:var(--muted);font-size:12px;padding:0 16px 30px;max-width:1000px;ma
   <label>Валюта / курс ₴ за $
     <span style="display:flex;gap:6px">
       <select id="cur" style="width:auto"><option value="uah" selected>₴</option><option value="usd">$</option></select>
-      <input id="rate" type="number" min="1" step="0.1" value="41.5">
+      <input id="rate" type="number" min="1" step="0.1" value="45.05">
     </span>
   </label>
   <label>Где продаёшь
@@ -172,9 +173,12 @@ function imgEl(base, size, cls){
   return im;
 }
 // Все цены в данных — в $. Отображение и бюджет — в выбранной валюте.
-const RATE = () => Math.max(1, parseFloat($("rate").value) || 41.5);
+const RATE = () => Math.max(1, parseFloat($("rate").value) || 45.05);
 const STEAM_MIN_UAH = 3; // минимальный лот в Steam для гривневого аккаунта
 const ICON_COPY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>';
+const ICON_EXT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>';
+const steamUrl = (name) => "https://steamcommunity.com/market/listings/730/" + encodeURIComponent(name);
+const WEAR_FULL = {FN:"Factory New",MW:"Minimal Wear",FT:"Field-Tested",WW:"Well-Worn",BS:"Battle-Scarred"};
 const ICON_OK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>';
 async function copyText(text, btn){
   let ok = false;
@@ -263,7 +267,7 @@ function render(){
         </div>
         <div class="roi ${r.profit>=0?'pos':'neg'}">${r.profit>=0?'+':''}${(r.roi*100).toFixed(1)}%${r.roi>2?'<div class="sus">слишком хорошо — проверь вручную</div>':''}</div>
       </div>
-      <div class="input"><span class="txt">${c.count}× <b class="in-name"></b><button class="copy" type="button" title="Скопировать название" aria-label="Скопировать название"></button> по ${money(inputPrice(c))} <span class="badge">${$("buy").value === "steam" ? "цена Steam" : c.input.qty + " лотов"}</span></span></div>
+      <div class="input"><span class="txt">${c.count}× <b class="in-name"></b><button class="copy" type="button" title="Скопировать название" aria-label="Скопировать название"></button><a class="copy steam-link" target="_blank" rel="noopener" title="Открыть в Steam (реальная цена)" aria-label="Открыть в Steam"></a> по ${money(inputPrice(c))} <span class="badge">${$("buy").value === "steam" ? "цена Steam" : c.input.qty + " лотов"}</span></span></div>
       <div class="strip"></div>
       <div class="stats">
         <div class="stat"><span>Вложишь</span><strong>${money(r.cost)}</strong></div>
@@ -276,6 +280,7 @@ function render(){
     el.querySelector(".col").textContent = c.col;
     el.querySelector(".in-name").textContent = c.input.name;
     const cb = el.querySelector(".copy"); cb.innerHTML = ICON_COPY;
+    const sl = el.querySelector(".steam-link"); sl.innerHTML = ICON_EXT; sl.href = steamUrl(c.input.name);
     cb.addEventListener("click", () => copyText(c.input.name, cb));
     el.querySelector(".hint").textContent = hint;
     const inBase = c.input.base || c.input.name.replace(/^StatTrak™ /,"").replace(/ \([^)]*\)$/,"");
@@ -288,7 +293,10 @@ function render(){
       const tr = document.createElement("tr");
       const tp = document.createElement("td"); tp.className = "pic";
       const ip = imgEl(o.base, 88); if (ip) tp.append(ip);
-      const td1 = document.createElement("td"); td1.textContent = `${o.name} (${o.wear})`;
+      const td1 = document.createElement("td");
+      const full = (c.st ? (o.name.startsWith("★ ") ? o.name.replace("★ ","★ StatTrak™ ") : "StatTrak™ " + o.name) : o.name) + (WEAR_FULL[o.wear] ? ` (${WEAR_FULL[o.wear]})` : "");
+      const a = document.createElement("a"); a.href = steamUrl(full); a.target = "_blank"; a.rel = "noopener";
+      a.textContent = `${o.name} (${o.wear})`; a.title = "Открыть в Steam"; td1.append(a);
       const td2 = document.createElement("td"); td2.textContent = money(o.net);
       td2.className = o.net >= r.cost ? "pos" : "neg";
       tr.append(tp, td1, td2); tb.append(tr);
@@ -312,6 +320,7 @@ async function load(){
 }
 
 loadPrefs();
+if ($("rate").value === "41.5") $("rate").value = "45.05"; // старый курс по умолчанию
 for (const id of ["buy","cur","rate","fee","budget","tier","sort","safe","pos","bestf","st"])
   $(id).addEventListener(id === "budget" || id === "rate" ? "input" : "change", render);
 load();
