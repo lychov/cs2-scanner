@@ -118,8 +118,9 @@ async function main() {
   const buyPrice = (name, count) => {
     const r = prices.get(name);
     if (!r) return null;
-    const p = r.q >= count && r.min != null ? r.min : Math.max(r.min ?? 0, r.sug ?? 0);
-    return p > 0 ? { p, q: r.q } : null;
+    // Берём только то, что реально можно купить в нужном количестве
+    if (r.q < count || r.min == null) return null;
+    return { p: r.min, q: r.q };
   };
   // Цена продажи выхода: осторожно — меньшая из минимального лота и оценки.
   const sellPrice = (name) => {
