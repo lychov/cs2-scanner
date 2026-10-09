@@ -118,7 +118,7 @@ footer{color:var(--muted);font-size:12px;padding:0 16px 30px;max-width:1000px;ma
   <div class="toggles">
     <label class="chip"><input type="checkbox" id="safe"> Только 100% в плюс</label>
     <label class="chip"><input type="checkbox" id="pos" checked> Только с плюсом</label>
-    <label class="chip"><input type="checkbox" id="bestf"> Если поймаю лучший флоат</label>
+    <label class="chip"><input type="checkbox" id="bestf"> Флоат-охота (ищу входы с низким флоатом)</label>
     <label class="chip"><input type="checkbox" id="st"> StatTrak</label>
   </div>
 </div>
@@ -209,23 +209,31 @@ function net(price, fee){
   return price * (1 - Number(fee));
 }
 
-function evaluate(c, fee, bestF){
-  const unit = inputPrice(c);
-  if (!unit) return null;
-  const cost = unit * c.count;
-  // Продажа в Steam — по ценам Steam, на маркетах — по ценам Skinport
-  const key = fee === "steam" ? (bestF ? "steamBest" : "steam") : (bestF ? "priceBest" : "price");
-  if (c.outcomes.some(o => !(o[key] > 0))) return null;
-  const vals = c.outcomes.map(o => ({
-    name:o.name,
-    base:o.name,
-    wear: bestF ? o.wearBest : o.wear,
-    gross: o[key],
-  })).map(o => ({...o, net: net(o.gross, fee)}));
+// Считает контракт для набора исходов [{name, wear, price, steam}]
+function scoreSet(c, outs, fee, cost){
+  const key = fee === "steam" ? "steam" : "price";
+  if (outs.some(o => !(o[key] > 0))) return null;
+  const vals = outs.map(o => ({name:o.name, base:o.name, wear:o.wear, gross:o[key], net: net(o[key], fee)}));
   const ev = vals.reduce((a,o)=>a+o.net,0) / vals.length;
   const hit = vals.filter(o => o.net >= cost).length / vals.length;
   vals.sort((a,b)=>b.net-a.net);
   return {cost, ev, profit: ev - cost, roi: (ev - cost) / cost, hit, vals};
+}
+function evaluate(c, fee, hunt){
+  const unit = inputPrice(c);
+  if (!unit) return null;
+  const cost = unit * c.count;
+  // Базовый расчёт — любой флоат в этом износе (по худшему)
+  let best = scoreSet(c, c.outcomes, fee, cost);
+  if (best) best.target = null;
+  if (!hunt) return best;
+  // Флоат-охота: пробуем пороги флоата, берём самый выгодный
+  for (const t of (c.targets || [])){
+    const outs = t.o.map((x, i) => ({name: c.outcomes[i].name, wear: x[0], price: x[1], steam: x[2]}));
+    const r = scoreSet(c, outs, fee, cost);
+    if (r && (!best || r.roi > best.roi + 1e-9)){ r.target = t.f; best = r; }
+  }
+  return best;
 }
 
 function render(){
@@ -256,8 +264,8 @@ function render(){
     const el = document.createElement("div");
     el.className = "card";
     const worst = r.vals[r.vals.length-1], best = r.vals[0];
-    const hint = bestF
-      ? `Нужен флоат входов около ${c.input.fMin} (низ износа). Обычный лот такого не даст — ищи по флоату.`
+    const hint = r.target != null
+      ? `🎯 Средний флоат входов должен быть ≤ ${r.target} (износ ${c.input.fMin}–${c.input.fMax}). В Steam флоат не виден — ищи такие лоты через расширение, они продаются по цене обычных.`
       : `Подойдёт любой флоат до ${c.input.fMax} в этом износе — расчёт уже по худшему.`;
     el.innerHTML = `
       <div class="row">

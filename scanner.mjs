@@ -298,10 +298,36 @@ async function main() {
             }
             if (!complete || !outcomes.length) continue;
 
+            // «Флоат-охота»: пороги флоата входа, при которых хоть один выход переходит в износ получше.
+            // Для каждого порога — максимальный флоат входа (берём с запасом) и цены всех исходов при нём.
+            const outList = outSkins.filter((o) => !st || o.st);
+            const bps = new Set();
+            for (const o of outList) {
+              if (o.vanilla) continue;
+              for (const b of [0.07, 0.15, 0.38, 0.45]) {
+                if (b <= o.min || b >= o.max) continue;
+                const n = (b - o.min) / (o.max - o.min);
+                const f = s.min + n * range - 0.0005; // чуть ниже границы, с запасом на округление
+                if (f > best.fLo && f < best.fHi) bps.add(+f.toFixed(4));
+              }
+            }
+            const targets = [];
+            for (const f of [...bps].sort((a, b) => b - a)) {
+              const n = (f - s.min) / range;
+              const res = outList.map((o) => outcomeAt(o, n, st));
+              if (res.some((x) => !x)) continue;
+              targets.push({ f, o: res.map((x) => [x.wear, x.price, x.steam]) });
+              if (targets.length >= 6) break;
+            }
+
             // Оставляем, если хоть в одной комбинации «где купил / где продал» контракт близок к нулю или в плюсе
             const avg = (k) =>
               outcomes.every((o) => o[k] > 0) ? outcomes.reduce((a, o) => a + o[k], 0) / outcomes.length : 0;
-            const evMax = Math.max(avg("price"), avg("priceBest"), avg("steam") / 1.15, avg("steamBest") / 1.15);
+            let evMax = Math.max(avg("price"), avg("priceBest"), avg("steam") / 1.15, avg("steamBest") / 1.15);
+            for (const t of targets) {
+              const a = (i) => (t.o.every((x) => x[i] > 0) ? t.o.reduce((acc, x) => acc + x[i], 0) / t.o.length : 0);
+              evMax = Math.max(evMax, a(1), a(2) / 1.15);
+            }
             const costs = [best.sp?.p, best.stp].filter((x) => x > 0).map((x) => x * count);
             if (!costs.length || evMax < Math.min(...costs) * KEEP_RATIO) continue;
 
@@ -321,6 +347,7 @@ async function main() {
                 fMax: +best.fHi.toFixed(4),
               },
               outcomes,
+              targets,
             });
           }
         }
