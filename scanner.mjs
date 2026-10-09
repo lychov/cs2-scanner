@@ -151,6 +151,7 @@ async function main() {
     const b = baseName(s);
     if (!b || skins.has(b)) {
       if (skins.has(b) && s.stattrak) skins.get(b).st = true;
+      if (skins.has(b) && !skins.get(b).img && s.image) skins.get(b).img = s.image;
       continue;
     }
     skins.set(b, {
@@ -161,6 +162,7 @@ async function main() {
       max: Number(s.max_float ?? 1),
       st: !!s.stattrak,
       vanilla: !b.includes("|"),
+      img: s.image || null,
       collections: [...(colOf.get(b) || [])],
       crates: [...(crateOf.get(b) || [])],
     });
@@ -272,6 +274,7 @@ async function main() {
             st,
             count,
             input: {
+              base: s.base,
               name: priceName(s.base, w.name, st),
               price: best.price,
               qty: best.qty,
@@ -286,6 +289,17 @@ async function main() {
   }
 
   await mkdir("public", { recursive: true });
+  // Картинки только для скинов, которые реально есть в выдаче (ключ — базовое имя)
+  const images = {};
+  const addImg = (base) => {
+    const sk = skins.get(base);
+    if (sk?.img) images[base] = sk.img;
+  };
+  for (const c of contracts) {
+    addImg(c.input.base);
+    c.outcomes.forEach((o) => addImg(o.name));
+  }
+
   const out = {
     updated: new Date().toISOString(),
     source: "Skinport (min listing), ByMykel/CSGO-API",
@@ -297,6 +311,7 @@ async function main() {
       cratesWithGold: goldByCrate.size,
       byTier: contracts.reduce((a, c) => ((a[c.tier] = (a[c.tier] || 0) + 1), a), {}),
     },
+    images,
     contracts,
   };
   await writeFile("public/data.json", JSON.stringify(out));

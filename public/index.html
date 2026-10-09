@@ -36,7 +36,13 @@ main{padding:12px 16px 40px;max-width:1000px;margin:0 auto}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle}
 .roi{font-weight:700;font-size:18px;white-space:nowrap}
 .pos{color:var(--green)}.neg{color:var(--red)}
-.input{margin:8px 0;font-size:14px}
+.input{margin:8px 0;font-size:14px;display:flex;align-items:center;gap:10px}
+.input .txt{min-width:0}
+.thumb{flex:0 0 auto;width:96px;height:72px;object-fit:contain;background:radial-gradient(circle at 50% 60%,#232838,var(--bg) 70%);border-radius:8px}
+.strip{display:flex;gap:4px;overflow-x:auto;margin-top:8px;padding-bottom:2px}
+.strip img{flex:0 0 auto;width:54px;height:40px;object-fit:contain;background:var(--bg);border-radius:6px;border-bottom:2px solid transparent}
+.strip img.win{border-bottom-color:var(--green)}.strip img.lose{border-bottom-color:var(--red)}
+td.pic{width:44px;padding-right:6px}td.pic img{width:44px;height:33px;object-fit:contain;display:block}
 .input b{font-weight:600}
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px}
 .stat{background:var(--bg);border-radius:8px;padding:6px 8px}
@@ -135,6 +141,18 @@ function savePrefs(){
   }catch(e){}
 }
 
+const IMG = (base, size) => {
+  const u = DATA.images && DATA.images[base];
+  return u ? u + "/" + size + "fx" + Math.round(size * 0.75) + "f" : "";
+};
+function imgEl(base, size, cls){
+  const src = IMG(base, size); if (!src) return null;
+  const im = document.createElement("img");
+  im.src = src; im.loading = "lazy"; im.alt = base; im.title = base;
+  if (cls) im.className = cls;
+  im.onerror = () => im.remove();
+  return im;
+}
 const money = (v) => "$" + (v >= 100 ? v.toFixed(0) : v.toFixed(2));
 function net(price, fee){
   return fee === "steam" ? price / 1.15 : price * (1 - Number(fee));
@@ -144,6 +162,7 @@ function evaluate(c, fee, bestF){
   const cost = c.input.price * c.count;
   const vals = c.outcomes.map(o => ({
     name:o.name,
+    base:o.name,
     wear: bestF ? o.wearBest : o.wear,
     gross: bestF ? o.priceBest : o.price,
   })).map(o => ({...o, net: net(o.gross, fee)}));
@@ -190,7 +209,8 @@ function render(){
         </div>
         <div class="roi ${r.profit>=0?'pos':'neg'}">${r.profit>=0?'+':''}${(r.roi*100).toFixed(1)}%</div>
       </div>
-      <div class="input">${c.count}× <b class="in-name"></b> по ${money(c.input.price)} <span class="badge">${c.input.qty} лотов</span></div>
+      <div class="input"><span class="txt">${c.count}× <b class="in-name"></b> по ${money(c.input.price)} <span class="badge">${c.input.qty} лотов</span></span></div>
+      <div class="strip"></div>
       <div class="stats">
         <div class="stat"><span>Вложишь</span><strong>${money(r.cost)}</strong></div>
         <div class="stat"><span>В среднем</span><strong>${money(r.ev)}</strong></div>
@@ -202,13 +222,20 @@ function render(){
     el.querySelector(".col").textContent = c.col;
     el.querySelector(".in-name").textContent = c.input.name;
     el.querySelector(".hint").textContent = hint;
+    const inBase = c.input.base || c.input.name.replace(/^StatTrak™ /,"").replace(/ \([^)]*\)$/,"");
+    const ti = imgEl(inBase, 192, "thumb"); if (ti) el.querySelector(".input").prepend(ti);
+    const strip = el.querySelector(".strip");
+    for (const o of r.vals){ const im = imgEl(o.base, 108, o.net >= r.cost ? "win" : "lose"); if (im) strip.append(im); }
+    if (!strip.children.length) strip.remove();
     const tb = el.querySelector("table");
     for (const o of r.vals){
       const tr = document.createElement("tr");
+      const tp = document.createElement("td"); tp.className = "pic";
+      const ip = imgEl(o.base, 88); if (ip) tp.append(ip);
       const td1 = document.createElement("td"); td1.textContent = `${o.name} (${o.wear})`;
       const td2 = document.createElement("td"); td2.textContent = money(o.net);
       td2.className = o.net >= r.cost ? "pos" : "neg";
-      tr.append(td1, td2); tb.append(tr);
+      tr.append(tp, td1, td2); tb.append(tr);
     }
     frag.append(el);
   }
