@@ -2,7 +2,7 @@ name: Debug data samples
 
 on:
   push:
-    paths: [".github/workflows/debug.yml", "debug.mjs"]
+    paths: [".github/workflows/debug.yml", "debug.mjs", "scanner.mjs"]
   workflow_dispatch:
 
 permissions:

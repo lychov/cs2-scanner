@@ -13,6 +13,8 @@ const SKINS_URL =
   "https://raw.githubusercontent.com/ByMykel/CSGO-API/main/public/api/en/skins_not_grouped.json";
 const CRATES_URL =
   "https://raw.githubusercontent.com/ByMykel/CSGO-API/main/public/api/en/crates.json";
+const COLLECTIONS_URL =
+  "https://raw.githubusercontent.com/ByMykel/CSGO-API/main/public/api/en/collections.json";
 const PRICES_URL = "https://api.skinport.com/v1/items?app_id=730&currency=USD&tradable=0";
 
 const WEARS = [
@@ -93,17 +95,52 @@ const outFloat = (normAvg, out) => out.min + normAvg * (out.max - out.min);
 // ---------- main ----------
 async function main() {
   const t0 = Date.now();
-  const [skinsRaw, crates, pricesRaw] = await Promise.all([
+  const [skinsRaw, crates, collectionsRaw, pricesRaw] = await Promise.all([
     loadJson(args.skins || SKINS_URL),
     loadJson(args.crates || CRATES_URL),
+    loadJson(args.collections || COLLECTIONS_URL),
     loadJson(args.prices || PRICES_URL, { headers: { "Accept-Encoding": "br" } }),
   ]);
 
-  // Цены: market_hash_name -> { p: min listing, q: кол-во лотов }
+  // Цены Skinport: min_price — самый дешёвый лот (бывает null), suggested_price — оценка рынка.
+  // Для одного имени может быть несколько записей (фазы Doppler) — берём самую дешёвую, это осторожнее.
   const prices = new Map();
   for (const it of pricesRaw) {
-    const p = it.min_price ?? it.suggested_price;
-    if (p) prices.set(it.market_hash_name, { p, q: it.quantity ?? 0 });
+    const min = it.min_price ?? null;
+    const sug = it.suggested_price ?? null;
+    if (min == null && sug == null) continue;
+    const cur = prices.get(it.market_hash_name);
+    const rec = { min, sug, q: it.quantity ?? 0 };
+    const val = (r) => Math.min(r.min ?? Infinity, r.sug ?? Infinity);
+    if (!cur || val(rec) < val(cur)) prices.set(it.market_hash_name, rec);
+  }
+  // Цена покупки входа: если лотов хватает — по минимальному лоту, иначе по рыночной оценке.
+  const buyPrice = (name, count) => {
+    const r = prices.get(name);
+    if (!r) return null;
+    const p = r.q >= count && r.min != null ? r.min : Math.max(r.min ?? 0, r.sug ?? 0);
+    return p > 0 ? { p, q: r.q } : null;
+  };
+  // Цена продажи выхода: осторожно — меньшая из минимального лота и оценки.
+  const sellPrice = (name) => {
+    const r = prices.get(name);
+    if (!r) return null;
+    const p = Math.min(r.min ?? Infinity, r.sug ?? Infinity);
+    return Number.isFinite(p) && p > 0 ? p : null;
+  };
+
+  // Коллекции и кейсы скинов (в файле скинов их нет — берём из collections.json)
+  const colOf = new Map(); // base name -> Set(collection)
+  const crateOf = new Map(); // base name -> Set(crate)
+  for (const col of collectionsRaw) {
+    const crateNames = (col.crates || []).map((c) => c.name);
+    for (const it of col.contains || []) {
+      const b = (it.name || "").replace(WEAR_RE, "").trim();
+      if (!colOf.has(b)) colOf.set(b, new Set());
+      colOf.get(b).add(col.name);
+      if (!crateOf.has(b)) crateOf.set(b, new Set());
+      crateNames.forEach((c) => crateOf.get(b).add(c));
+    }
   }
 
   // Уникальные скины (по базовому имени, без износа/ST/фаз)
@@ -123,8 +160,8 @@ async function main() {
       max: Number(s.max_float ?? 1),
       st: !!s.stattrak,
       vanilla: !b.includes("|"),
-      collections: (s.collections || []).map((c) => c.name),
-      crates: (s.crates || []).map((c) => c.name),
+      collections: [...(colOf.get(b) || [])],
+      crates: [...(crateOf.get(b) || [])],
     });
   }
 
@@ -148,13 +185,13 @@ async function main() {
   // Цена выходного скина при заданном "нормализованном" флоате
   function outcomeAt(skin, norm, st) {
     if (skin.vanilla) {
-      const pr = prices.get(priceName(skin.base, null, st));
-      return pr ? { wear: "—", float: null, price: pr.p } : null;
+      const p = sellPrice(priceName(skin.base, null, st));
+      return p ? { wear: "—", float: null, price: p } : null;
     }
     const f = outFloat(norm, skin);
     const w = wearOf(f);
-    const pr = prices.get(priceName(skin.base, w.name, st));
-    return pr ? { wear: w.short, float: +f.toFixed(4), price: pr.p } : null;
+    const p = sellPrice(priceName(skin.base, w.name, st));
+    return p ? { wear: w.short, float: +f.toFixed(4), price: p } : null;
   }
 
   const contracts = [];
@@ -190,8 +227,8 @@ async function main() {
             const lo = Math.max(w.lo, s.min);
             const hi = Math.min(w.hi, s.max);
             if (lo >= hi) continue;
-            const pr = prices.get(priceName(s.base, w.name, st));
-            if (!pr || pr.q < count) continue;
+            const pr = buyPrice(priceName(s.base, w.name, st), count);
+            if (!pr) continue;
             if (!best || pr.p < best.price)
               best = { skin: s, price: pr.p, qty: pr.q, fLo: lo, fHi: hi };
           }
@@ -252,6 +289,13 @@ async function main() {
     updated: new Date().toISOString(),
     source: "Skinport (min listing), ByMykel/CSGO-API",
     tiers: TIER_RU,
+    stats: {
+      prices: prices.size,
+      skins: skins.size,
+      collections: byCol.size,
+      cratesWithGold: goldByCrate.size,
+      byTier: contracts.reduce((a, c) => ((a[c.tier] = (a[c.tier] || 0) + 1), a), {}),
+    },
     contracts,
   };
   await writeFile("public/data.json", JSON.stringify(out));
