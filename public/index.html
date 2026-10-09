@@ -128,7 +128,7 @@ footer{color:var(--muted);font-size:12px;padding:0 16px 30px;max-width:1000px;ma
 
 <footer>
   Шансы: каждый скин следующего уровня в коллекции выпадает с равной вероятностью; для ножей — каждая отделка из кейса.
-  Цены — самый дешёвый лот на Skinport, пересчитаны по твоему курсу. В режиме «покупаю в Steam» цена входа не ниже 3 ₴ за штуку, но в Steam скины часто дороже и сверх этого — проверяй перед покупкой. Флоат выхода считается по худшему флоату внутри износа входа
+  Цены Steam — средние цены реальных продаж за 24 часа / 7 дней (покупка считается по большей, продажа — по меньшей), не ниже 3 ₴ за штуку. Цены маркетов — самый дешёвый лот на Skinport. Всё пересчитано по твоему курсу. Средняя цена — не гарантия: перед покупкой глянь текущие лоты. Флоат выхода считается по худшему флоату внутри износа входа
   (режим «лучший флоат» — по лучшему). Всегда перепроверяй перед покупкой — контракт необратим.
 </footer>
 
@@ -193,19 +193,29 @@ const money = (v) => {
   return "$" + (v >= 100 ? v.toFixed(0) : v.toFixed(2));
 };
 // Цена покупки одного входа: в Steam не может быть ниже 3 ₴
-const inputPrice = (c) => $("buy").value === "steam" ? Math.max(c.input.price, STEAM_MIN_UAH / RATE()) : c.input.price;
+// Цена покупки одного входа: в Steam — средняя цена продаж в Steam (не ниже 3 ₴), иначе — лот Skinport.
+// null = в этом режиме цены нет, контракт не показываем.
+const inputPrice = (c) => {
+  if ($("buy").value === "steam") return c.input.steam ? Math.max(c.input.steam, STEAM_MIN_UAH / RATE()) : null;
+  return c.input.price || null;
+};
 function net(price, fee){
   if (fee === "steam") return Math.max(price, STEAM_MIN_UAH / RATE()) / 1.15;
   return price * (1 - Number(fee));
 }
 
 function evaluate(c, fee, bestF){
-  const cost = inputPrice(c) * c.count;
+  const unit = inputPrice(c);
+  if (!unit) return null;
+  const cost = unit * c.count;
+  // Продажа в Steam — по ценам Steam, на маркетах — по ценам Skinport
+  const key = fee === "steam" ? (bestF ? "steamBest" : "steam") : (bestF ? "priceBest" : "price");
+  if (c.outcomes.some(o => !(o[key] > 0))) return null;
   const vals = c.outcomes.map(o => ({
     name:o.name,
     base:o.name,
     wear: bestF ? o.wearBest : o.wear,
-    gross: bestF ? o.priceBest : o.price,
+    gross: o[key],
   })).map(o => ({...o, net: net(o.gross, fee)}));
   const ev = vals.reduce((a,o)=>a+o.net,0) / vals.length;
   const hit = vals.filter(o => o.net >= cost).length / vals.length;
@@ -225,7 +235,7 @@ function render(){
   let rows = DATA.contracts
     .filter(c => c.st === st && (!tier || c.tier === tier))
     .map(c => ({c, r: evaluate(c, fee, bestF)}))
-    .filter(({r}) => (isNaN(budget) || r.cost <= budget) && (!pos || r.profit > 0) && (!safe || r.hit === 1));
+    .filter(({r}) => r && (isNaN(budget) || r.cost <= budget) && (!pos || r.profit > 0) && (!safe || r.hit === 1));
 
   const key = {roi:(x)=>-x.r.roi, profit:(x)=>-x.r.profit, hit:(x)=>-(x.r.hit*10+x.r.roi), cost:(x)=>x.r.cost}[sort];
   rows.sort((a,b)=>key(a)-key(b));
@@ -252,7 +262,7 @@ function render(){
         </div>
         <div class="roi ${r.profit>=0?'pos':'neg'}">${r.profit>=0?'+':''}${(r.roi*100).toFixed(1)}%</div>
       </div>
-      <div class="input"><span class="txt">${c.count}× <b class="in-name"></b><button class="copy" type="button" title="Скопировать название" aria-label="Скопировать название"></button> по ${money(inputPrice(c))} <span class="badge">${c.input.qty} лотов</span></span></div>
+      <div class="input"><span class="txt">${c.count}× <b class="in-name"></b><button class="copy" type="button" title="Скопировать название" aria-label="Скопировать название"></button> по ${money(inputPrice(c))} <span class="badge">${$("buy").value === "steam" ? "цена Steam" : c.input.qty + " лотов"}</span></span></div>
       <div class="strip"></div>
       <div class="stats">
         <div class="stat"><span>Вложишь</span><strong>${money(r.cost)}</strong></div>
