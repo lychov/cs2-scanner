@@ -1,30 +1,30 @@
-// Временный скрипт: сохраняет образцы исходных данных, чтобы проверить их формат.
+// Временный скрипт: проверяем, отдаёт ли Steam цены торговой площадки с серверов GitHub.
 import { mkdir, writeFile } from "node:fs/promises";
 
-const SRC = {
-  skins: "https://raw.githubusercontent.com/ByMykel/CSGO-API/main/public/api/en/skins_not_grouped.json",
-  crates: "https://raw.githubusercontent.com/ByMykel/CSGO-API/main/public/api/en/crates.json",
-  collections: "https://raw.githubusercontent.com/ByMykel/CSGO-API/main/public/api/en/collections.json",
-  prices: "https://api.skinport.com/v1/items?app_id=730&currency=USD&tradable=0",
-};
-
 await mkdir("debug-out", { recursive: true });
-const report = {};
-for (const [k, url] of Object.entries(SRC)) {
+const report = { pages: [] };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let first = null;
+for (let i = 0; i < 6; i++) {
+  const url = `https://steamcommunity.com/market/search/render/?appid=730&norender=1&count=100&start=${i * 100}&sort_column=name&sort_dir=asc`;
+  const t = Date.now();
   try {
-    const res = await fetch(url, { headers: k === "prices" ? { "Accept-Encoding": "br" } : {} });
+    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
     const text = await res.text();
-    report[k] = { status: res.status, bytes: text.length };
-    let data;
-    try { data = JSON.parse(text); } catch { report[k].notJson = text.slice(0, 500); continue; }
-    const arr = Array.isArray(data) ? data : Object.values(data);
-    report[k].isArray = Array.isArray(data);
-    report[k].count = arr.length;
-    const pick = arr.filter((x) => JSON.stringify(x).includes("Asiimov")).slice(0, 3);
-    await writeFile(`debug-out/${k}-sample.json`, JSON.stringify({ first: arr.slice(0, 2), asiimov: pick }, null, 1));
+    let j = null;
+    try { j = JSON.parse(text); } catch {}
+    report.pages.push({ i, status: res.status, ms: Date.now() - t, total: j?.total_count, got: j?.results?.length, raw: j ? undefined : text.slice(0, 200) });
+    if (j?.results && !first) first = j.results.slice(0, 3);
   } catch (e) {
-    report[k] = { error: String(e) };
+    report.pages.push({ i, error: String(e) });
   }
+  await sleep(3000);
 }
+// Одна цена в гривнах через priceoverview (currency=18 — UAH)
+try {
+  const r = await fetch("https://steamcommunity.com/market/priceoverview/?appid=730&currency=18&market_hash_name=" + encodeURIComponent("P90 | Asiimov (Field-Tested)"));
+  report.priceoverview = { status: r.status, body: (await r.text()).slice(0, 300) };
+} catch (e) { report.priceoverview = { error: String(e) }; }
+report.sample = first;
 await writeFile("debug-out/report.json", JSON.stringify(report, null, 1));
-console.log(report);
+console.log(JSON.stringify(report, null, 1));
