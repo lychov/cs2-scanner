@@ -66,15 +66,27 @@ footer{color:var(--muted);font-size:12px;padding:0 16px 30px;max-width:1000px;ma
 </header>
 
 <div class="filters">
+  <label>Где покупаешь
+    <select id="buy">
+      <option value="steam" selected>Steam (от 3 ₴)</option>
+      <option value="skinport">Skinport / маркеты</option>
+    </select>
+  </label>
+  <label>Валюта / курс ₴ за $
+    <span style="display:flex;gap:6px">
+      <select id="cur" style="width:auto"><option value="uah" selected>₴</option><option value="usd">$</option></select>
+      <input id="rate" type="number" min="1" step="0.1" value="41.5">
+    </span>
+  </label>
   <label>Где продаёшь
     <select id="fee">
-      <option value="steam">Steam (−15%)</option>
-      <option value="0.02" selected>CSFloat / Buff (−2%)</option>
+      <option value="steam" selected>Steam (−15%)</option>
+      <option value="0.02">CSFloat / Buff (−2%)</option>
       <option value="0.05">Другой маркет (−5%)</option>
       <option value="0">Обмен, без продажи (0%)</option>
     </select>
   </label>
-  <label>Бюджет до, $
+  <label>Бюджет до (в выбранной валюте)
     <input id="budget" type="number" min="0" step="1" placeholder="любой">
   </label>
   <label>Уровень
@@ -111,7 +123,7 @@ footer{color:var(--muted);font-size:12px;padding:0 16px 30px;max-width:1000px;ma
 
 <footer>
   Шансы: каждый скин следующего уровня в коллекции выпадает с равной вероятностью; для ножей — каждая отделка из кейса.
-  Цены — самый дешёвый лот на Skinport, в Steam обычно дороже. Флоат выхода считается по худшему флоату внутри износа входа
+  Цены — самый дешёвый лот на Skinport, пересчитаны по твоему курсу. В режиме «покупаю в Steam» цена входа не ниже 3 ₴ за штуку, но в Steam скины часто дороже и сверх этого — проверяй перед покупкой. Флоат выхода считается по худшему флоату внутри износа входа
   (режим «лучший флоат» — по лучшему). Всегда перепроверяй перед покупкой — контракт необратим.
 </footer>
 
@@ -134,7 +146,7 @@ function loadPrefs(){
 function savePrefs(){
   try{
     const p = {};
-    for (const k of ["fee","budget","tier","sort","safe","pos","bestf","st"]){
+    for (const k of ["buy","cur","rate","fee","budget","tier","sort","safe","pos","bestf","st"]){
       const el = $(k); p[k] = el.type === "checkbox" ? el.checked : el.value;
     }
     localStorage.setItem(PREFS_KEY, JSON.stringify(p));
@@ -153,13 +165,22 @@ function imgEl(base, size, cls){
   im.onerror = () => im.remove();
   return im;
 }
-const money = (v) => "$" + (v >= 100 ? v.toFixed(0) : v.toFixed(2));
+// Все цены в данных — в $. Отображение и бюджет — в выбранной валюте.
+const RATE = () => Math.max(1, parseFloat($("rate").value) || 41.5);
+const STEAM_MIN_UAH = 3; // минимальный лот в Steam для гривневого аккаунта
+const money = (v) => {
+  if ($("cur").value === "uah"){ const u = v * RATE(); return (u >= 100 ? u.toFixed(0) : u.toFixed(2)) + " ₴"; }
+  return "$" + (v >= 100 ? v.toFixed(0) : v.toFixed(2));
+};
+// Цена покупки одного входа: в Steam не может быть ниже 3 ₴
+const inputPrice = (c) => $("buy").value === "steam" ? Math.max(c.input.price, STEAM_MIN_UAH / RATE()) : c.input.price;
 function net(price, fee){
-  return fee === "steam" ? price / 1.15 : price * (1 - Number(fee));
+  if (fee === "steam") return Math.max(price, STEAM_MIN_UAH / RATE()) / 1.15;
+  return price * (1 - Number(fee));
 }
 
 function evaluate(c, fee, bestF){
-  const cost = c.input.price * c.count;
+  const cost = inputPrice(c) * c.count;
   const vals = c.outcomes.map(o => ({
     name:o.name,
     base:o.name,
@@ -175,7 +196,9 @@ function evaluate(c, fee, bestF){
 function render(){
   if (!DATA) return;
   savePrefs();
-  const fee = $("fee").value, budget = parseFloat($("budget").value);
+  const fee = $("fee").value;
+  const budgetRaw = parseFloat($("budget").value);
+  const budget = $("cur").value === "uah" ? budgetRaw / RATE() : budgetRaw;
   const tier = $("tier").value, sort = $("sort").value;
   const safe = $("safe").checked, pos = $("pos").checked, bestF = $("bestf").checked, st = $("st").checked;
 
@@ -209,7 +232,7 @@ function render(){
         </div>
         <div class="roi ${r.profit>=0?'pos':'neg'}">${r.profit>=0?'+':''}${(r.roi*100).toFixed(1)}%</div>
       </div>
-      <div class="input"><span class="txt">${c.count}× <b class="in-name"></b> по ${money(c.input.price)} <span class="badge">${c.input.qty} лотов</span></span></div>
+      <div class="input"><span class="txt">${c.count}× <b class="in-name"></b> по ${money(inputPrice(c))} <span class="badge">${c.input.qty} лотов</span></span></div>
       <div class="strip"></div>
       <div class="stats">
         <div class="stat"><span>Вложишь</span><strong>${money(r.cost)}</strong></div>
@@ -256,8 +279,8 @@ async function load(){
 }
 
 loadPrefs();
-for (const id of ["fee","budget","tier","sort","safe","pos","bestf","st"])
-  $(id).addEventListener(id === "budget" ? "input" : "change", render);
+for (const id of ["buy","cur","rate","fee","budget","tier","sort","safe","pos","bestf","st"])
+  $(id).addEventListener(id === "budget" || id === "rate" ? "input" : "change", render);
 load();
 </script>
 </body>
