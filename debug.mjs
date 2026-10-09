@@ -1,30 +1,31 @@
-// Временный скрипт: проверяем, отдаёт ли Steam цены торговой площадки с серверов GitHub.
+// Временный скрипт: ищем доступный источник цен Steam.
 import { mkdir, writeFile } from "node:fs/promises";
 
 await mkdir("debug-out", { recursive: true });
-const report = { pages: [] };
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-let first = null;
-for (let i = 0; i < 6; i++) {
-  const url = `https://steamcommunity.com/market/search/render/?appid=730&norender=1&count=100&start=${i * 100}&sort_column=name&sort_dir=asc`;
-  const t = Date.now();
+const report = {};
+const tries = {
+  csgotrader_steam: "https://prices.csgotrader.app/latest/steam.json",
+  csgotrader_v6: "https://prices.csgotrader.app/latest/prices_v6.json",
+};
+for (const [k, url] of Object.entries(tries)) {
   try {
     const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
     const text = await res.text();
-    let j = null;
-    try { j = JSON.parse(text); } catch {}
-    report.pages.push({ i, status: res.status, ms: Date.now() - t, total: j?.total_count, got: j?.results?.length, raw: j ? undefined : text.slice(0, 200) });
-    if (j?.results && !first) first = j.results.slice(0, 3);
+    report[k] = { status: res.status, bytes: text.length };
+    try {
+      const j = JSON.parse(text);
+      const keys = Object.keys(j);
+      report[k].count = keys.length;
+      const want = ["P90 | Asiimov (Field-Tested)", "G3SG1 | Dream Glade (Well-Worn)", "SSG 08 | Dezastre (Well-Worn)", "★ Butterfly Knife | Fade (Factory New)"];
+      report[k].sample = Object.fromEntries(want.map((n) => [n, j[n]]));
+      report[k].firstKey = keys[0];
+      report[k].first = j[keys[0]];
+    } catch {
+      report[k].head = text.slice(0, 300);
+    }
   } catch (e) {
-    report.pages.push({ i, error: String(e) });
+    report[k] = { error: String(e) };
   }
-  await sleep(3000);
 }
-// Одна цена в гривнах через priceoverview (currency=18 — UAH)
-try {
-  const r = await fetch("https://steamcommunity.com/market/priceoverview/?appid=730&currency=18&market_hash_name=" + encodeURIComponent("P90 | Asiimov (Field-Tested)"));
-  report.priceoverview = { status: r.status, body: (await r.text()).slice(0, 300) };
-} catch (e) { report.priceoverview = { error: String(e) }; }
-report.sample = first;
 await writeFile("debug-out/report.json", JSON.stringify(report, null, 1));
 console.log(JSON.stringify(report, null, 1));
