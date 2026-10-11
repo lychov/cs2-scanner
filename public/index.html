@@ -308,6 +308,17 @@ function scoreSet(c, outs, fee, cost){
   vals.sort((a,b)=>b.net-a.net);
   return {cost, ev, profit: ev - cost, roi: (ev - cost) / cost, hit, vals, realOut: fee === "steam" && realAll};
 }
+// Подсказка по флоату: сумма для всех входов и пример раскладки
+function floatPlan(c, t){
+  const n = c.count, sum = t * n, lo = c.input.fMin;
+  const r4 = (x) => +x.toFixed(4);
+  let ex = "";
+  const k = Math.max(1, Math.round(n * 0.7));          // большинство — чуть выше минимума износа
+  const base = r4(lo + (t - lo) * 0.4);
+  const rest = (sum - k * base) / (n - k);
+  if (n - k > 0 && rest > base) ex = ` Например: ${k} шт по ${base} + ${n - k} шт до ${r4(rest)}.`;
+  return `🎯 Средний флоат ${n} входов ≤ ${t}, т.е. сумма всех флоатов ≤ ${r4(sum)} (меньше флоата в износе ${lo}–${c.input.fMax} не бывает).${ex}`;
+}
 // «Лёгкий» порог: подходит не меньше 75% флоатов этого износа — такие лоты стоят как обычные
 const EASY_SHARE = 0.75;
 function evaluate(c, fee, hunt){
@@ -363,9 +374,9 @@ function render(){
     el.className = "card";
     const worst = r.vals[r.vals.length-1], best = r.vals[0];
     const hint = r.target != null
-      ? (r.share >= EASY_SHARE
-          ? `🎯 Средний флоат входов ≤ ${r.target} (износ ${c.input.fMin}–${c.input.fMax}): подходит ~${Math.round(r.share*100)}% лотов этого износа — обычно по обычной цене. Просто не бери самые «грязные».`
-          : `⚠️ Нужен средний флоат ≤ ${r.target} (износ ${c.input.fMin}–${c.input.fMax}): подходит только ~${Math.round(r.share*100)}% лотов, они обычно дороже — расчёт по обычной цене, реальная выгода ниже.`)
+      ? floatPlan(c, r.target) + " " + (r.share >= EASY_SHARE
+          ? `Подходит ~${Math.round(r.share*100)}% лотов этого износа — обычно по обычной цене.`
+          : `⚠️ Подходит только ~${Math.round(r.share*100)}% лотов этого износа, такие обычно дороже — расчёт по обычной цене, реальная выгода ниже.`)
       : `Подойдёт любой флоат до ${c.input.fMax} в этом износе — расчёт уже по худшему.`;
     el.innerHTML = `
       <div class="row">
