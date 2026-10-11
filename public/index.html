@@ -34,6 +34,16 @@ main{padding:12px 16px 40px;max-width:1000px;margin:0 auto}
 .tab.on{color:var(--text);border-bottom-color:var(--accent)}
 .tab[data-tab="hard"].on{border-bottom-color:#ff7a3d}
 .tabnote{margin:0;padding:6px 16px 4px;color:var(--muted);font-size:13px}
+.watchbar{background:var(--panel);border:1px solid #ff7a3d55;border-radius:12px;padding:10px 12px;margin:0 0 12px}
+.wb-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.wb-head button{margin-left:auto;background:#ff7a3d;color:#0b0d12;border:0;border-radius:8px;padding:7px 10px;font-weight:600;cursor:pointer}
+.witem{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px;font-size:13px}
+.witem .wn{flex:1 1 100%;font-weight:600}
+.witem input{width:84px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px 6px;font-size:13px}
+.witem button{background:none;border:1px solid var(--line);color:var(--muted);border-radius:6px;padding:3px 8px;cursor:pointer}
+.wb-note{margin-top:8px;font-size:12px;color:var(--muted)}
+.watch{border:1px solid var(--line);background:var(--bg);color:var(--text);border-radius:7px;padding:4px 8px;font-size:12px;cursor:pointer;margin-left:6px}
+.watch.on{border-color:#ff7a3d;color:#ff7a3d}
 .realbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:0 0 12px}
 .realbar button{background:var(--accent);color:#0b0d12;border:0;border-radius:8px;padding:9px 12px;font-weight:600;font-size:14px;cursor:pointer}
 .realbar button:disabled{opacity:.6;cursor:default}
@@ -143,14 +153,20 @@ footer{color:var(--muted);font-size:12px;padding:0 16px 30px;max-width:1000px;ma
 </div>
 
 <main>
+  <div class="watchbar" id="watchbar" hidden>
+    <div class="wb-head"><b>👁 Слежка</b> <span id="wcount"></span>
+      <button id="wstart" type="button">Запустить слежку в Steam</button></div>
+    <div id="wlist"></div>
+    <div class="wb-note">Откроется Steam — нажми там закладку «CS2 сканер». Пока вкладка Steam открыта, раз в 2 минуты проверяются новые лоты; подходящий — звук, уведомление и ссылка «купить».</div>
+  </div>
   <div class="realbar">
     <button id="refresh" type="button">🔄 Обновить реальные цены Steam (топ-30)</button>
     <span id="realstat"></span>
     <details class="howto"><summary>Как это работает (один раз настроить)</summary>
       <ol>
-        <li>Перетащи эту кнопку на панель закладок браузера: <a id="bm" class="bm" href="#">Цены CS2 → сканер</a></li>
+        <li>Перетащи эту кнопку на панель закладок браузера (она же нужна для «👁 Слежки»): <a id="bm" class="bm" href="#">CS2 сканер</a></li>
         <li>Жми «Обновить реальные цены Steam» — откроется торговая площадка Steam</li>
-        <li>На открывшейся вкладке Steam нажми закладку «Цены CS2 → сканер» и подожди (около 3 сек на скин)</li>
+        <li>На открывшейся вкладке Steam нажми закладку «CS2 сканер» и подожди (около 3 сек на скин)</li>
         <li>Цены сами придут сюда, и карточки пересчитаются по реальным гривнам</li>
       </ol>
       Цены берутся прямо из Steam в твоём браузере, в гривнах — курс для них не нужен. Хранятся в этом браузере 3 дня.
@@ -359,7 +375,7 @@ function render(){
         </div>
         <div class="roi ${r.profit>=0?'pos':'neg'}">${r.profit>=0?'+':''}${(r.roi*100).toFixed(1)}%${r.real?'<div class="real">✓ реальные цены Steam</div>':''}${r.roi>2&&!r.real?'<div class="sus">слишком хорошо — проверь вручную</div>':''}</div>
       </div>
-      <div class="input"><span class="txt">${c.count}× <b class="in-name"></b><button class="copy" type="button" title="Скопировать название" aria-label="Скопировать название"></button><a class="copy steam-link" target="_blank" rel="noopener" title="Открыть в Steam (реальная цена)" aria-label="Открыть в Steam"></a> по ${money(inputPrice(c))} <span class="badge">${$("buy").value === "steam" ? (inputIsReal(c) ? "лот Steam" : "средняя Steam") : c.input.qty + " лотов"}</span></span></div>
+      <div class="input"><span class="txt">${c.count}× <b class="in-name"></b><button class="copy" type="button" title="Скопировать название" aria-label="Скопировать название"></button><a class="copy steam-link" target="_blank" rel="noopener" title="Открыть в Steam (реальная цена)" aria-label="Открыть в Steam"></a><button class="watch" type="button">👁 Следить</button> по ${money(inputPrice(c))} <span class="badge">${$("buy").value === "steam" ? (inputIsReal(c) ? "лот Steam" : "средняя Steam") : c.input.qty + " лотов"}</span></span></div>
       <div class="strip"></div>
       <div class="stats">
         <div class="stat"><span>Вложишь</span><strong>${money(r.cost)}</strong></div>
@@ -373,6 +389,20 @@ function render(){
     el.querySelector(".in-name").textContent = c.input.name;
     const cb = el.querySelector(".copy"); cb.innerHTML = ICON_COPY;
     const sl = el.querySelector(".steam-link"); sl.innerHTML = ICON_EXT; sl.href = steamUrl(c.input.name);
+    const wb = el.querySelector(".watch");
+    const watched = () => WATCH.some(w => w.name === c.input.name);
+    const paintW = () => { wb.classList.toggle("on", watched()); wb.textContent = watched() ? "👁 Слежу" : "👁 Следить"; };
+    paintW();
+    wb.addEventListener("click", () => {
+      if (watched()) WATCH = WATCH.filter(w => w.name !== c.input.name);
+      else WATCH.push({
+        name: c.input.name,
+        maxFloat: r.target != null ? r.target : c.input.fMax,
+        // лимит цены: обычная цена входа +20% (меняется в панели слежки)
+        maxPrice: Math.ceil(inputPrice(c) * RATE() * 1.2),
+      });
+      saveWatch(); paintW();
+    });
     cb.addEventListener("click", () => copyText(c.input.name, cb));
     el.querySelector(".hint").textContent = hint;
     const inBase = c.input.base || c.input.name.replace(/^StatTrak™ /,"").replace(/ \([^)]*\)$/,"");
@@ -420,6 +450,35 @@ async function load(){
   }
 }
 
+// --- Слежка за лотами с нужным флоатом ---
+let WATCH = [];
+try { WATCH = JSON.parse(localStorage.getItem("tradeup-watch") || "[]"); } catch(_){}
+function saveWatch(){
+  try { localStorage.setItem("tradeup-watch", JSON.stringify(WATCH)); } catch(_){}
+  drawWatch();
+}
+function drawWatch(){
+  $("watchbar").hidden = !WATCH.length;
+  $("wcount").textContent = WATCH.length ? `(${WATCH.length})` : "";
+  const list = $("wlist"); list.innerHTML = "";
+  WATCH.forEach((w, i) => {
+    const row = document.createElement("div"); row.className = "witem";
+    const n = document.createElement("span"); n.className = "wn"; n.textContent = w.name;
+    const f = document.createElement("input"); f.type = "number"; f.step = "0.0001"; f.value = w.maxFloat; f.title = "Максимальный флоат";
+    const pr = document.createElement("input"); pr.type = "number"; pr.step = "1"; pr.value = w.maxPrice; pr.title = "Максимальная цена, ₴";
+    const del = document.createElement("button"); del.type = "button"; del.textContent = "убрать";
+    f.addEventListener("change", () => { w.maxFloat = parseFloat(f.value) || w.maxFloat; saveWatch(); });
+    pr.addEventListener("change", () => { w.maxPrice = parseFloat(pr.value) || w.maxPrice; saveWatch(); });
+    del.addEventListener("click", () => { WATCH.splice(i, 1); saveWatch(); render(); });
+    row.append(n, "флоат ≤", f, "цена ≤", pr, "₴", del);
+    list.append(row);
+  });
+}
+$("wstart").addEventListener("click", () => {
+  window.open("https://steamcommunity.com/market/#cs2watch=" + encodeURIComponent(JSON.stringify(WATCH)), "cs2watch");
+});
+drawWatch();
+
 // --- Обновление реальных цен Steam через закладку ---
 function realStatus(){
   const n = Object.values(REAL).filter(v => v && !v.none && v.at && Date.now() - v.at < REAL_MAX_AGE_H*3600e3).length;
@@ -435,7 +494,7 @@ $("refresh").addEventListener("click", () => {
   }
   if (!names.length){ $("realstat").textContent = "Нет контрактов в списке — ослабь фильтры"; return; }
   window.open("https://steamcommunity.com/market/#cs2scan=" + encodeURIComponent(JSON.stringify(names)), "cs2steam");
-  $("realstat").textContent = `Открыл Steam: нажми там закладку «Цены CS2 → сканер» (${names.length} скинов, ~${Math.ceil(names.length*3.5/60)} мин)`;
+  $("realstat").textContent = `Открыл Steam: нажми там закладку «CS2 сканер» (${names.length} скинов, ~${Math.ceil(names.length*3.5/60)} мин)`;
 });
 window.addEventListener("message", (e) => {
   if (e.origin !== "https://steamcommunity.com" || !e.data || typeof e.data.cs2scan !== "object") return;
