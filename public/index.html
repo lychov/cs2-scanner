@@ -29,6 +29,11 @@ select,input[type=number]{width:100%;background:var(--panel);color:var(--text);
 .chip input{accent-color:var(--accent);margin:0}
 main{padding:12px 16px 40px;max-width:1000px;margin:0 auto}
 .count{color:var(--muted);font-size:13px;margin:0 0 10px}
+.tabs{display:flex;gap:6px;padding:4px 16px 0}
+.tab{flex:1;max-width:260px;background:var(--panel);color:var(--muted);border:1px solid var(--line);border-bottom:2px solid transparent;border-radius:10px 10px 0 0;padding:10px 12px;font-size:15px;font-weight:600;cursor:pointer}
+.tab.on{color:var(--text);border-bottom-color:var(--accent)}
+.tab[data-tab="hard"].on{border-bottom-color:#ff7a3d}
+.tabnote{margin:0;padding:6px 16px 4px;color:var(--muted);font-size:13px}
 .realbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:0 0 12px}
 .realbar button{background:var(--accent);color:#0b0d12;border:0;border-radius:8px;padding:9px 12px;font-weight:600;font-size:14px;cursor:pointer}
 .realbar button:disabled{opacity:.6;cursor:default}
@@ -80,6 +85,11 @@ footer{color:var(--muted);font-size:12px;padding:0 16px 30px;max-width:1000px;ma
   <div class="meta" id="meta">Загрузка данных…</div>
 </header>
 
+<nav class="tabs">
+  <button type="button" data-tab="easy" class="tab">Обычные крафты</button>
+  <button type="button" data-tab="hard" class="tab">🔥 Сложные крафты</button>
+</nav>
+<p class="tabnote" id="tabnote"></p>
 <div class="filters">
   <label>Где покупаешь
     <select id="buy">
@@ -126,7 +136,7 @@ footer{color:var(--muted);font-size:12px;padding:0 16px 30px;max-width:1000px;ma
   <div class="toggles">
     <label class="chip"><input type="checkbox" id="safe"> Только 100% в плюс</label>
     <label class="chip"><input type="checkbox" id="pos" checked> Только с плюсом</label>
-    <label class="chip"><input type="checkbox" id="bestf"> Флоат-охота (ищу входы с низким флоатом)</label>
+
     <label class="chip"><input type="checkbox" id="st"> StatTrak</label>
     <label class="chip"><input type="checkbox" id="realonly"> ✓ Только реальные цены Steam</label>
   </div>
@@ -175,7 +185,7 @@ function loadPrefs(){
 function savePrefs(){
   try{
     const p = {};
-    for (const k of ["buy","cur","rate","fee","budget","tier","sort","safe","pos","bestf","st","realonly"]){
+    for (const k of ["buy","cur","rate","fee","budget","tier","sort","safe","pos","st","realonly"]){
       const el = $(k); p[k] = el.type === "checkbox" ? el.checked : el.value;
     }
     localStorage.setItem(PREFS_KEY, JSON.stringify(p));
@@ -223,6 +233,19 @@ const money = (v) => {
 let REAL = {};
 let REAL_UPDATED = null;
 let LAST_ROWS = [];
+let TAB = "easy";
+try { TAB = localStorage.getItem("tradeup-tab") === "hard" ? "hard" : "easy"; } catch(_){}
+const TAB_NOTE = {
+  easy: "Подходит любой флоат или почти любой (не меньше 75% лотов этого износа) — входы покупаются по обычной цене.",
+  hard: "🔥 Нужен низкий флоат входов — такие лоты редкие и обычно дороже обычных. Выгода посчитана по обычной цене, так что перед покупкой смотри реальные цены лотов с нужным флоатом.",
+};
+function setTab(t){
+  TAB = t;
+  try { localStorage.setItem("tradeup-tab", t); } catch(_){}
+  document.querySelectorAll(".tab").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
+  $("tabnote").textContent = TAB_NOTE[t];
+  render();
+}
 const REAL_MAX_AGE_H = 72; // старее — не считаем реальными
 const realOf = (name) => {
   const r = REAL[name];
@@ -269,6 +292,8 @@ function scoreSet(c, outs, fee, cost){
   vals.sort((a,b)=>b.net-a.net);
   return {cost, ev, profit: ev - cost, roi: (ev - cost) / cost, hit, vals, realOut: fee === "steam" && realAll};
 }
+// «Лёгкий» порог: подходит не меньше 75% флоатов этого износа — такие лоты стоят как обычные
+const EASY_SHARE = 0.75;
 function evaluate(c, fee, hunt){
   const unit = inputPrice(c);
   if (!unit) return null;
@@ -279,10 +304,14 @@ function evaluate(c, fee, hunt){
   const fin = (b) => { if (b) b.real = inputIsReal(c) && b.realOut; return b; };
   if (!hunt) return fin(best);
   // Флоат-охота: пробуем пороги флоата, берём самый выгодный
+  const span = (c.input.fMax - c.input.fMin) || 1;
   for (const t of (c.targets || [])){
+    // Доля износа, которая подходит под порог: 1 = любой скин этого износа, 0.1 = только самые «чистые» (они дороже)
+    const share = (t.f - c.input.fMin) / span;
+    if (hunt === "easy" && share < EASY_SHARE) continue;
     const outs = t.o.map((x, i) => ({name: c.outcomes[i].name, wear: x[0], price: x[1], steam: x[2]}));
     const r = scoreSet(c, outs, fee, cost);
-    if (r && (!best || r.roi > best.roi + 1e-9)){ r.target = t.f; best = r; }
+    if (r && (!best || r.roi > best.roi + 1e-9)){ r.target = t.f; r.share = share; best = r; }
   }
   return fin(best);
 }
@@ -294,13 +323,13 @@ function render(){
   const budgetRaw = parseFloat($("budget").value);
   const budget = $("cur").value === "uah" ? budgetRaw / RATE() : budgetRaw;
   const tier = $("tier").value, sort = $("sort").value;
-  const safe = $("safe").checked, pos = $("pos").checked, bestF = $("bestf").checked, st = $("st").checked;
+  const safe = $("safe").checked, pos = $("pos").checked, bestF = TAB === "hard" ? "all" : "easy", st = $("st").checked;
   const realOnly = $("realonly").checked;
 
   let rows = DATA.contracts
     .filter(c => c.st === st && (!tier || c.tier === tier))
     .map(c => ({c, r: evaluate(c, fee, bestF)}))
-    .filter(({r}) => r && (!realOnly || r.real) && (isNaN(budget) || r.cost <= budget) && (!pos || r.profit > 0) && (!safe || r.hit === 1));
+    .filter(({r}) => r && (TAB !== "hard" || (r.target != null && r.share < EASY_SHARE)) && (!realOnly || r.real) && (isNaN(budget) || r.cost <= budget) && (!pos || r.profit > 0) && (!safe || r.hit === 1));
 
   const key = {roi:(x)=>-x.r.roi, profit:(x)=>-x.r.profit, hit:(x)=>-(x.r.hit*10+x.r.roi), cost:(x)=>x.r.cost}[sort];
   rows.sort((a,b)=>key(a)-key(b));
@@ -310,7 +339,7 @@ function render(){
   $("count").textContent = rows.length
     ? `Найдено ${rows.length}` + (rows.length > shown.length ? `, показаны первые ${shown.length}` : "")
     : "";
-  $("list").innerHTML = shown.length ? "" : `<div class="empty">Сайт работает — просто под эти фильтры сейчас нет контрактов в плюс.<br>Больше всего вариантов даёт <b>Steam → Steam</b> с галочкой <b>«Флоат-охота»</b>, или уровень «Все».</div>`;
+  $("list").innerHTML = shown.length ? "" : `<div class="empty">Сайт работает — просто под эти фильтры сейчас нет контрактов в плюс.<br>Попробуй вкладку <b>🔥 Сложные крафты</b>, уровень «Все» или выключи «Только реальные цены Steam».</div>`;
 
   const frag = document.createDocumentFragment();
   for (const {c, r} of shown){
@@ -318,7 +347,9 @@ function render(){
     el.className = "card";
     const worst = r.vals[r.vals.length-1], best = r.vals[0];
     const hint = r.target != null
-      ? `🎯 Средний флоат входов должен быть ≤ ${r.target} (износ ${c.input.fMin}–${c.input.fMax}). В Steam флоат не виден — ищи такие лоты через расширение, они продаются по цене обычных.`
+      ? (r.share >= EASY_SHARE
+          ? `🎯 Средний флоат входов ≤ ${r.target} (износ ${c.input.fMin}–${c.input.fMax}): подходит ~${Math.round(r.share*100)}% лотов этого износа — обычно по обычной цене. Просто не бери самые «грязные».`
+          : `⚠️ Нужен средний флоат ≤ ${r.target} (износ ${c.input.fMin}–${c.input.fMax}): подходит только ~${Math.round(r.share*100)}% лотов, они обычно дороже — расчёт по обычной цене, реальная выгода ниже.`)
       : `Подойдёт любой флоат до ${c.input.fMax} в этом износе — расчёт уже по худшему.`;
     el.innerHTML = `
       <div class="row">
@@ -423,8 +454,10 @@ fetch("bookmarklet.js").then(r => r.text()).then(code => { $("bm").href = "javas
 $("bm").addEventListener("click", (e) => { e.preventDefault(); alert("Не нажимай здесь — перетащи эту кнопку на панель закладок."); });
 
 loadPrefs();
+document.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => setTab(b.dataset.tab)));
+setTab(TAB);
 if ($("rate").value === "41.5") $("rate").value = "45.05"; // старый курс по умолчанию
-for (const id of ["buy","cur","rate","fee","budget","tier","sort","safe","pos","bestf","st","realonly"])
+for (const id of ["buy","cur","rate","fee","budget","tier","sort","safe","pos","st","realonly"])
   $(id).addEventListener(id === "budget" || id === "rate" ? "input" : "change", render);
 load();
 </script>
