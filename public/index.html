@@ -29,12 +29,20 @@ select,input[type=number]{width:100%;background:var(--panel);color:var(--text);
 .chip input{accent-color:var(--accent);margin:0}
 main{padding:12px 16px 40px;max-width:1000px;margin:0 auto}
 .count{color:var(--muted);font-size:13px;margin:0 0 10px}
+.realbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:0 0 12px}
+.realbar button{background:var(--accent);color:#0b0d12;border:0;border-radius:8px;padding:9px 12px;font-weight:600;font-size:14px;cursor:pointer}
+.realbar button:disabled{opacity:.6;cursor:default}
+#realstat{color:var(--muted);font-size:13px}
+.howto{width:100%;font-size:13px;color:var(--muted)}
+.howto ol{margin:6px 0;padding-left:20px}.howto li{margin:3px 0}
+.bm{display:inline-block;padding:3px 8px;border:1px dashed var(--accent);border-radius:6px;color:var(--accent);text-decoration:none;cursor:grab}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
 .row{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
 .col{font-weight:600}
 .tier{font-size:12px;color:var(--muted);margin-top:2px}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle}
 .roi{font-weight:700;font-size:18px;white-space:nowrap}
+.real{font-size:11px;font-weight:600;color:var(--green);text-align:right;white-space:nowrap}
 .sus{font-size:11px;font-weight:500;color:var(--amber);text-align:right;white-space:normal;max-width:120px}
 .pos{color:var(--green)}.neg{color:var(--red)}
 .input{margin:8px 0;font-size:14px;display:flex;align-items:center;gap:10px}
@@ -120,10 +128,24 @@ footer{color:var(--muted);font-size:12px;padding:0 16px 30px;max-width:1000px;ma
     <label class="chip"><input type="checkbox" id="pos" checked> Только с плюсом</label>
     <label class="chip"><input type="checkbox" id="bestf"> Флоат-охота (ищу входы с низким флоатом)</label>
     <label class="chip"><input type="checkbox" id="st"> StatTrak</label>
+    <label class="chip"><input type="checkbox" id="realonly"> ✓ Только реальные цены Steam</label>
   </div>
 </div>
 
 <main>
+  <div class="realbar">
+    <button id="refresh" type="button">🔄 Обновить реальные цены Steam (топ-30)</button>
+    <span id="realstat"></span>
+    <details class="howto"><summary>Как это работает (один раз настроить)</summary>
+      <ol>
+        <li>Перетащи эту кнопку на панель закладок браузера: <a id="bm" class="bm" href="#">Цены CS2 → сканер</a></li>
+        <li>Жми «Обновить реальные цены Steam» — откроется торговая площадка Steam</li>
+        <li>На открывшейся вкладке Steam нажми закладку «Цены CS2 → сканер» и подожди (около 3 сек на скин)</li>
+        <li>Цены сами придут сюда, и карточки пересчитаются по реальным гривнам</li>
+      </ol>
+      Цены берутся прямо из Steam в твоём браузере, в гривнах — курс для них не нужен. Хранятся в этом браузере 3 дня.
+    </details>
+  </div>
   <p class="count" id="count"></p>
   <div id="list"></div>
 </main>
@@ -153,7 +175,7 @@ function loadPrefs(){
 function savePrefs(){
   try{
     const p = {};
-    for (const k of ["buy","cur","rate","fee","budget","tier","sort","safe","pos","bestf","st"]){
+    for (const k of ["buy","cur","rate","fee","budget","tier","sort","safe","pos","bestf","st","realonly"]){
       const el = $(k); p[k] = el.type === "checkbox" ? el.checked : el.value;
     }
     localStorage.setItem(PREFS_KEY, JSON.stringify(p));
@@ -197,13 +219,31 @@ const money = (v) => {
   if ($("cur").value === "uah"){ const u = v * RATE(); return (u >= 100 ? u.toFixed(0) : u.toFixed(2)) + " ₴"; }
   return "$" + (v >= 100 ? v.toFixed(0) : v.toFixed(2));
 };
-// Цена покупки одного входа: в Steam не может быть ниже 3 ₴
-// Цена покупки одного входа: в Steam — средняя цена продаж в Steam (не ниже 3 ₴), иначе — лот Skinport.
-// null = в этом режиме цены нет, контракт не показываем.
+// Реальные цены Steam в гривнах (снятые прямо со Steam): {name: {low, med, vol, at}}
+let REAL = {};
+let REAL_UPDATED = null;
+let LAST_ROWS = [];
+const REAL_MAX_AGE_H = 72; // старее — не считаем реальными
+const realOf = (name) => {
+  const r = REAL[name];
+  if (!r || r.none || !(r.low > 0)) return null;
+  if (r.at && Date.now() - r.at > REAL_MAX_AGE_H * 3600e3) return null;
+  return r;
+};
+const fullName = (c, name, wear) =>
+  (c.st ? (name.startsWith("★ ") ? name.replace("★ ","★ StatTrak™ ") : "StatTrak™ " + name) : name) + (WEAR_FULL[wear] ? ` (${WEAR_FULL[wear]})` : "");
+
+// Цена покупки одного входа ($ внутри; реальные гривны переводятся по курсу и при показе возвращаются обратно точно).
+// В Steam: реальная цена самого дешёвого лота, если есть; иначе средняя из фида (не ниже 3 ₴). null = цены нет.
 const inputPrice = (c) => {
-  if ($("buy").value === "steam") return c.input.steam ? Math.max(c.input.steam, STEAM_MIN_UAH / RATE()) : null;
+  if ($("buy").value === "steam"){
+    const r = realOf(c.input.name);
+    if (r) return r.low / RATE();
+    return c.input.steam ? Math.max(c.input.steam, STEAM_MIN_UAH / RATE()) : null;
+  }
   return c.input.price || null;
 };
+const inputIsReal = (c) => $("buy").value === "steam" && !!realOf(c.input.name);
 function net(price, fee){
   if (fee === "steam") return Math.max(price, STEAM_MIN_UAH / RATE()) / 1.15;
   return price * (1 - Number(fee));
@@ -212,12 +252,22 @@ function net(price, fee){
 // Считает контракт для набора исходов [{name, wear, price, steam}]
 function scoreSet(c, outs, fee, cost){
   const key = fee === "steam" ? "steam" : "price";
-  if (outs.some(o => !(o[key] > 0))) return null;
-  const vals = outs.map(o => ({name:o.name, base:o.name, wear:o.wear, gross:o[key], net: net(o[key], fee)}));
+  let realAll = true;
+  const priced = outs.map(o => {
+    if (fee === "steam"){
+      // Продажа в Steam: реальная цена — меньшая из самого дешёвого лота и медианы
+      const r = realOf(fullName(c, o.name, o.wear));
+      if (r) return {...o, g: Math.min(r.low, r.med || r.low) / RATE()};
+    }
+    realAll = false;
+    return {...o, g: o[key]};
+  });
+  if (priced.some(o => !(o.g > 0))) return null;
+  const vals = priced.map(o => ({name:o.name, base:o.name, wear:o.wear, gross:o.g, net: net(o.g, fee)}));
   const ev = vals.reduce((a,o)=>a+o.net,0) / vals.length;
   const hit = vals.filter(o => o.net >= cost).length / vals.length;
   vals.sort((a,b)=>b.net-a.net);
-  return {cost, ev, profit: ev - cost, roi: (ev - cost) / cost, hit, vals};
+  return {cost, ev, profit: ev - cost, roi: (ev - cost) / cost, hit, vals, realOut: fee === "steam" && realAll};
 }
 function evaluate(c, fee, hunt){
   const unit = inputPrice(c);
@@ -226,14 +276,15 @@ function evaluate(c, fee, hunt){
   // Базовый расчёт — любой флоат в этом износе (по худшему)
   let best = scoreSet(c, c.outcomes, fee, cost);
   if (best) best.target = null;
-  if (!hunt) return best;
+  const fin = (b) => { if (b) b.real = inputIsReal(c) && b.realOut; return b; };
+  if (!hunt) return fin(best);
   // Флоат-охота: пробуем пороги флоата, берём самый выгодный
   for (const t of (c.targets || [])){
     const outs = t.o.map((x, i) => ({name: c.outcomes[i].name, wear: x[0], price: x[1], steam: x[2]}));
     const r = scoreSet(c, outs, fee, cost);
     if (r && (!best || r.roi > best.roi + 1e-9)){ r.target = t.f; best = r; }
   }
-  return best;
+  return fin(best);
 }
 
 function render(){
@@ -244,15 +295,17 @@ function render(){
   const budget = $("cur").value === "uah" ? budgetRaw / RATE() : budgetRaw;
   const tier = $("tier").value, sort = $("sort").value;
   const safe = $("safe").checked, pos = $("pos").checked, bestF = $("bestf").checked, st = $("st").checked;
+  const realOnly = $("realonly").checked;
 
   let rows = DATA.contracts
     .filter(c => c.st === st && (!tier || c.tier === tier))
     .map(c => ({c, r: evaluate(c, fee, bestF)}))
-    .filter(({r}) => r && (isNaN(budget) || r.cost <= budget) && (!pos || r.profit > 0) && (!safe || r.hit === 1));
+    .filter(({r}) => r && (!realOnly || r.real) && (isNaN(budget) || r.cost <= budget) && (!pos || r.profit > 0) && (!safe || r.hit === 1));
 
   const key = {roi:(x)=>-x.r.roi, profit:(x)=>-x.r.profit, hit:(x)=>-(x.r.hit*10+x.r.roi), cost:(x)=>x.r.cost}[sort];
   rows.sort((a,b)=>key(a)-key(b));
   const shown = rows.slice(0, 150);
+  LAST_ROWS = rows;
 
   $("count").textContent = rows.length
     ? `Найдено ${rows.length}` + (rows.length > shown.length ? `, показаны первые ${shown.length}` : "")
@@ -273,9 +326,9 @@ function render(){
           <div class="col"></div>
           <div class="tier"><span class="dot" style="background:${TIER_COLOR[c.tier]}"></span>${SHORT[c.tier]} → <span class="dot" style="background:${TIER_COLOR[c.outTier]}"></span>${SHORT[c.outTier]}${c.st?'<span class="badge">ST</span>':''}</div>
         </div>
-        <div class="roi ${r.profit>=0?'pos':'neg'}">${r.profit>=0?'+':''}${(r.roi*100).toFixed(1)}%${r.roi>2?'<div class="sus">слишком хорошо — проверь вручную</div>':''}</div>
+        <div class="roi ${r.profit>=0?'pos':'neg'}">${r.profit>=0?'+':''}${(r.roi*100).toFixed(1)}%${r.real?'<div class="real">✓ реальные цены Steam</div>':''}${r.roi>2&&!r.real?'<div class="sus">слишком хорошо — проверь вручную</div>':''}</div>
       </div>
-      <div class="input"><span class="txt">${c.count}× <b class="in-name"></b><button class="copy" type="button" title="Скопировать название" aria-label="Скопировать название"></button><a class="copy steam-link" target="_blank" rel="noopener" title="Открыть в Steam (реальная цена)" aria-label="Открыть в Steam"></a> по ${money(inputPrice(c))} <span class="badge">${$("buy").value === "steam" ? "цена Steam" : c.input.qty + " лотов"}</span></span></div>
+      <div class="input"><span class="txt">${c.count}× <b class="in-name"></b><button class="copy" type="button" title="Скопировать название" aria-label="Скопировать название"></button><a class="copy steam-link" target="_blank" rel="noopener" title="Открыть в Steam (реальная цена)" aria-label="Открыть в Steam"></a> по ${money(inputPrice(c))} <span class="badge">${$("buy").value === "steam" ? (inputIsReal(c) ? "лот Steam" : "средняя Steam") : c.input.qty + " лотов"}</span></span></div>
       <div class="strip"></div>
       <div class="stats">
         <div class="stat"><span>Вложишь</span><strong>${money(r.cost)}</strong></div>
@@ -318,18 +371,60 @@ async function load(){
   try{
     const res = await fetch("data.json", {cache:"no-store"});
     DATA = await res.json();
+    try{
+      const rr = await fetch("steam_uah.json", {cache:"no-store"});
+      if (rr.ok){ const j = await rr.json(); const at = Date.parse(j.updated) || 0;
+        for (const [k,v] of Object.entries(j.prices || {})) REAL[k] = {...v, at: v.at || at}; REAL_UPDATED = j.updated; }
+    }catch(e){}
+    try{ // цены, которые ты обновил сам кнопкой в Steam (новее — главнее)
+      const own = JSON.parse(localStorage.getItem("real-steam-uah") || "{}");
+      for (const [k,v] of Object.entries(own)) if (!REAL[k] || (v.at||0) > (REAL[k].at||0)) REAL[k] = v;
+    }catch(e){}
     const d = new Date(DATA.updated);
     const mins = Math.round((Date.now() - d) / 60000);
     $("meta").textContent = `Обновлено ${d.toLocaleString("ru-RU")} (${mins < 60 ? mins + " мин" : Math.round(mins/60) + " ч"} назад) · ${DATA.contracts.length} контрактов в базе`;
-    render();
+    render(); realStatus();
   }catch(e){
     $("meta").textContent = "Не удалось загрузить data.json — сначала запусти node scanner.mjs";
   }
 }
 
+// --- Обновление реальных цен Steam через закладку ---
+function realStatus(){
+  const n = Object.values(REAL).filter(v => v && !v.none && v.at && Date.now() - v.at < REAL_MAX_AGE_H*3600e3).length;
+  $("realstat").textContent = n ? `Реальных цен Steam: ${n}` : "Реальных цен Steam пока нет";
+}
+$("refresh").addEventListener("click", () => {
+  const names = [];
+  const add = (n) => { if (n && !names.includes(n)) names.push(n); };
+  for (const {c, r} of LAST_ROWS.slice(0, 30)){
+    add(c.input.name);
+    c.outcomes.forEach(o => add(fullName(c, o.name, o.wear)));
+    (c.targets || []).forEach(t => t.o.forEach((x, i) => add(fullName(c, c.outcomes[i].name, x[0]))));
+  }
+  if (!names.length){ $("realstat").textContent = "Нет контрактов в списке — ослабь фильтры"; return; }
+  window.open("https://steamcommunity.com/market/#cs2scan=" + encodeURIComponent(JSON.stringify(names)), "cs2steam");
+  $("realstat").textContent = `Открыл Steam: нажми там закладку «Цены CS2 → сканер» (${names.length} скинов, ~${Math.ceil(names.length*3.5/60)} мин)`;
+});
+window.addEventListener("message", (e) => {
+  if (e.origin !== "https://steamcommunity.com" || !e.data || typeof e.data.cs2scan !== "object") return;
+  let own = {};
+  try { own = JSON.parse(localStorage.getItem("real-steam-uah") || "{}"); } catch(_){}
+  for (const [k, v] of Object.entries(e.data.cs2scan)){
+    if (!v || typeof v !== "object") continue;
+    const clean = {low: +v.low || null, med: +v.med || null, vol: +v.vol || 0, none: !!v.none, at: +v.at || Date.now()};
+    REAL[k] = clean; own[k] = clean;
+  }
+  try { localStorage.setItem("real-steam-uah", JSON.stringify(own)); } catch(_){}
+  render(); realStatus();
+  if (e.data.done) $("realstat").textContent += " — обновлено ✓";
+});
+fetch("bookmarklet.js").then(r => r.text()).then(code => { $("bm").href = "javascript:" + encodeURIComponent(code); }).catch(() => {});
+$("bm").addEventListener("click", (e) => { e.preventDefault(); alert("Не нажимай здесь — перетащи эту кнопку на панель закладок."); });
+
 loadPrefs();
 if ($("rate").value === "41.5") $("rate").value = "45.05"; // старый курс по умолчанию
-for (const id of ["buy","cur","rate","fee","budget","tier","sort","safe","pos","bestf","st"])
+for (const id of ["buy","cur","rate","fee","budget","tier","sort","safe","pos","bestf","st","realonly"])
   $(id).addEventListener(id === "budget" || id === "rate" ? "input" : "change", render);
 load();
 </script>
